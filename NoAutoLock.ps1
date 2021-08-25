@@ -1,6 +1,20 @@
 
+# TODO code structure and testing
+# TODO add warning - tool usage 
+# TODO add actions 
 # TODO settings for background mode 
-# WinForms Icon - Create Icon Extractor Assembly
+
+
+
+# log function
+function log($logMsg) {
+    $timestamp = Get-Date -Format "[MM/dd/yyyy-HH:mm:ss ffff]"
+    Write-Host Log $timestamp : $logMsg
+}
+
+log "tool startup"
+
+# WinForms Icon - Create Icon Extractor Assembly - to get system icons
 $code = @"
 using System;
 using System.Drawing;
@@ -33,12 +47,24 @@ namespace System
 }
 "@
 
+# Imports
 Add-Type -TypeDefinition $code -ReferencedAssemblies System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName PresentationCore, PresentationFramework
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# constants
+$shortcutFileName = "NAL.lnk"
+$runFile = "run.bat"
+$historyStart = 6
+$link = 'www.linkedin.com/in/ananduvt'
+
+# $keys = @('{CAPSLOCK}', '{NUMLOCK}')
+$time1List = @(2000, 5000, 7000, 10000, 150000)
+$time2List = @(100, 300, 500, 1000, 2000, 5000)
+
+# variables
 $settingFile = $env:LOCALAPPDATA + '\NALSettings.txt'
 $settings = @('delay1=1000', `
         'delay2=100', `
@@ -47,27 +73,33 @@ $settings = @('delay1=1000', `
         'autoStart=False', `
         'history', `
         "StartTime `t StopTime `t RunTime") 
+
 $currentHistory = ''
 $history = ''
+
+$capsState = [System.Windows.Forms.Control]::IsKeyLocked( 'CapsLock' )
+$numState = [System.Windows.Forms.Control]::IsKeyLocked( 'NumLock' )
+$keyToUse = @('{NUMLOCK}')
+$time1 = 1000
+$time2 = 100
+$mouseMove = $false
+$soundOn = $false
+$autoStart = $false
+$time = 0
+$jobId = ''
 
 function createSettings {
     $null = New-Item $settingFile
     Set-Content -Path $settingFile -Value $settings
 }
+
 function updateSettings {
     Set-Content -Path $settingFile -Value $settings
-    $script:history = $settings[6..$settings.Length]
-}
-
-if (Test-Path $settingFile) {
-    $settings = Get-Content -Path $settingFile
-}
-else {
-    createSettings
+    $script:history = $settings[$historyStart..$settings.Length]
 }
 
 function clearHistory() {
-    Set-Content -Path $settingFile -Value $settings[0..6]
+    Set-Content -Path $settingFile -Value $settings[0..$historyStart]
     $script:settings = Get-Content -Path $settingFile
     $script:history = $null
 }
@@ -77,8 +109,7 @@ function createHistory {
 }
 
 function updateHistory {
-
-    if ($Button.Text -eq 'STOP') {
+    if ($StartButton.Text -eq 'STOP') {
         $timeNow = get-date
         $duration = $timeNow - $script:currentHistory 
         $script:currentHistory = ($script:currentHistory.tostring() + "`t" + $timeNow.tostring() + "`t" + $duration.tostring().Split(".")[0])
@@ -92,83 +123,105 @@ function updateHistory {
     }
 }
 
-$history = $settings[6..$settings.Length]
+function createShortcut() {
+    $desktopPath = [Environment]::GetFolderPath("Desktop")
+    $shortcutFile = $desktopPath + '\' + $shortcutFileName
 
-$Global:time1 = $settings[0].Split('=')[1]
-$Global:time2 = $settings[1].Split('=')[1]
-$mouseMove = $false
-$soundOn = $false
-$autoStart = $false
+    $ScriptName = $MyInvocation.ScriptName
+    $scriptDir = Split-Path $scriptname -Parent
+    $target = $scriptDir + '\' + $runFile
 
-if ($settings[2].Split('=')[1] -eq 'True') {
-    $mouseMove = $true
+    if (Test-Path $shortcutFile ) {
+        $ButtonType = [System.Windows.MessageBoxButton]::OK
+        $MessageboxTitle = 'Shorcut Available'
+        $Messageboxbody = 'Shortcut to run the tool already available in your Desktop'
+        $MessageIcon = [System.Windows.MessageBoxImage]::Information
+        $null = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
+        Start-Process -FilePath C:\Windows\explorer.exe -ArgumentList "/select, ""$shortcutFile"""
+    }
+    else {
+        $WshShell = New-Object -comObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut($shortcutFile) 
+        $Shortcut.TargetPath = $target
+        $Shortcut.WorkingDirectory = $scriptDir
+        $Shortcut.Save()
+
+        $ButtonType = [System.Windows.MessageBoxButton]::OK
+        $MessageboxTitle = 'Shorcut Created'
+        $Messageboxbody = 'Shortcut to run the tool created and available in your Desktop'
+        $MessageIcon = [System.Windows.MessageBoxImage]::Information
+        $null = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
+    }
 }
-else {
-    $mouseMove = $false
+
+function initApp() {
+    # check for settings file 
+    if (Test-Path $settingFile) {
+        log "settings available"
+        $script:settings = Get-Content -Path $settingFile
+    }
+    else {
+        log "create settings"
+        createSettings
+    }
+
+    # load settings
+    log "load settings"
+    $script:history = $script:settings[$historyStart..$settings.Length]
+    $script:time1 = $settings[0].Split('=')[1]
+    $script:time2 = $settings[1].Split('=')[1]
+
+    if ($settings[2].Split('=')[1] -eq 'True') {
+        $script:mouseMove = $true
+    }
+    else {
+        $script:mouseMove = $false
+    }
+    if ($settings[3].Split('=')[1] -eq 'True') {
+        $script:soundOn = $true
+    }
+    else {
+        $script:soundOn = $false
+    }
+
+    if ($settings[4].Split('=')[1] -eq 'True') {
+        $script:autoStart = $true
+    }
+    else {
+        $script:autoStart = $false
+    }
 }
-if ($settings[3].Split('=')[1] -eq 'True') {
-    $soundOn = $true
-}
-else {
-    $soundOn = $false
-}
 
-if ($settings[4].Split('=')[1] -eq 'True') {
-    $autoStart = $true
-}
-else {
-    $autoStart = $false
-}
-
-
-$link = 'www.linkedin.com/in/ananduvt'
-$capsState = [System.Windows.Forms.Control]::IsKeyLocked( 'CapsLock' )
-$numState = [System.Windows.Forms.Control]::IsKeyLocked( 'NumLock' )
-
-$Global:keys = @('{CAPSLOCK}', '{NUMLOCK}')
-$Global:keyToUse = @('{NUMLOCK}')
-
-$Global:time1List = @(500, 1000, 2000, 5000, 7000, 10000)
-$Global:time2List = @(100, 200, 300, 400, 500, 1000, 2000)
-
-# Main form 
+# main form elements
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'No Auto Lock '
-$form.opacity = 0.8
-$form.BackColor = 'black'
-$form.Size = New-Object System.Drawing.Size(300, 290)
-$form.StartPosition = 'CenterScreen'
-$form.Topmost = $true
-$form.MinimumSize = New-Object System.Drawing.Size(300, 290)
-$form.MaximumSize = New-Object System.Drawing.Size(300, 290)
-$Form.MaximizeBox = $false
-# $Form.MinimizeBox = $false 
-$form.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
-$Form.Icon = [System.IconExtractor]::Extract("shell32.dll", 265, $true)
-
-$menuMain = New-Object System.Windows.Forms.MenuStrip
-$menuMain.BackColor = 'black'
-$Form.Controls.Add($menuMain)
-
 $menuSettings = New-Object System.Windows.Forms.ToolStripMenuItem
-$menuSettings.Text = "&Settings"
-$menuSettings.ForeColor = 'white'
-$menuSettings.BackColor = 'black'
-$menuSettings.Add_MouseHover( { $menuSettings.ForeColor = 'black' })
-$menuSettings.Add_MouseLeave( { $menuSettings.ForeColor = 'white' })
-$menuSettings.Add_Click( { settings })
-[void]$menuMain.Items.Add($menuSettings)
+$menuAbout = New-Object System.Windows.Forms.ToolStripMenuItem
+$menuHistory = New-Object System.Windows.Forms.ToolStripMenuItem
+$menuAction = New-Object System.Windows.Forms.ToolStripMenuItem
+$StartButton = New-Object System.Windows.Forms.Button
+$ProgressBar1 = New-Object system.Windows.Forms.ProgressBar
+$labelT = New-Object System.Windows.Forms.Label
+$timer = New-Object System.Windows.Forms.Timer
+$labelL = New-Object System.Windows.Forms.Label
+$statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
 
-function settings {
+$keyImage1 = New-Object System.Windows.Forms.PictureBox
+$keyImage2 = New-Object System.Windows.Forms.PictureBox
+$mouseImage1 = New-Object System.Windows.Forms.PictureBox
+$mouseImage2 = New-Object System.Windows.Forms.PictureBox
+$soundImage1 = New-Object System.Windows.Forms.PictureBox
+$soundImage2 = New-Object System.Windows.Forms.PictureBox
+
+function showSettings {
     $settingsForm = New-Object System.Windows.Forms.Form
     $settingsForm.Text = 'No Auto Lock - Settings'
     $settingsForm.opacity = 0.85
     $settingsForm.BackColor = 'black'
-    $settingsForm.Size = New-Object System.Drawing.Size(355, 210)
+    $settingsForm.Size = New-Object System.Drawing.Size(355, 230)
     $settingsForm.StartPosition = 'CenterScreen'
     $settingsForm.Topmost = $true
-    $settingsForm.MinimumSize = New-Object System.Drawing.Size(365, 210)
-    $settingsForm.MaximumSize = New-Object System.Drawing.Size(365, 210)
+    $settingsForm.MinimumSize = New-Object System.Drawing.Size(365, 230)
+    $settingsForm.MaximumSize = New-Object System.Drawing.Size(365, 230)
     $settingsForm.MaximizeBox = $false
     $settingsForm.MinimizeBox = $false 
     $settingsForm.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
@@ -183,16 +236,16 @@ function settings {
     $checkCaps.Font = New-Object System.Drawing.Font('Microsoft Sans Serif', 10)
     $checkCaps.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
     
-    if ('{CAPSLOCK}' -in $Global:keyToUse) {
+    if ('{CAPSLOCK}' -in $keyToUse) {
         $checkCaps.Checked = $true
     }
 
     $checkCaps.Add_CheckStateChanged( {
             if ($checkCaps.Checked) {
-                $Global:keyToUse = $Global:keyToUse += '{CAPSLOCK}'
+                $keyToUse = $keyToUse += '{CAPSLOCK}'
             }
             else {
-                $Global:keyToUse = $Global:keyToUse -ne '{CAPSLOCK}'
+                $keyToUse = $keyToUse -ne '{CAPSLOCK}'
             }
             updateStatus
         })
@@ -206,16 +259,16 @@ function settings {
     $checkNum.Font = New-Object System.Drawing.Font('Microsoft Sans Serif', 10)
     $checkNum.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
 
-    if ('{NUMLOCK}' -in $Global:keyToUse) {
+    if ('{NUMLOCK}' -in $keyToUse) {
         $checkNum.Checked = $true
     }
 
     $checkNum.Add_CheckStateChanged( {
             if ($checkNum.Checked) {
-                $Global:keyToUse = $Global:keyToUse += '{NUMLOCK}'
+                $keyToUse = $keyToUse += '{NUMLOCK}'
             }
             else {
-                $Global:keyToUse = $Global:keyToUse -ne '{NUMLOCK}' 
+                $keyToUse = $keyToUse -ne '{NUMLOCK}' 
             }
             updateStatus
         })
@@ -237,10 +290,10 @@ function settings {
     $ComboBox1.Font = New-Object System.Drawing.Font('Microsoft Sans Serif', 10)
     $ComboBox1.BackColor = 'black'
     $ComboBox1.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    $Global:time1List | ForEach-Object { [void] $ComboBox1.Items.Add($_) }
-    $ComboBox1.text = $Global:time1
+    $time1List | ForEach-Object { [void] $ComboBox1.Items.Add($_) }
+    $ComboBox1.text = $script:time1
     $ComboBox1.add_SelectedIndexChanged( {
-            $Global:time1 = $ComboBox1.Text
+            $script:time1 = $ComboBox1.Text
             $settings[0] = 'delay1=' + $ComboBox1.Text
             updateSettings
             updateStatus
@@ -258,10 +311,10 @@ function settings {
     $ComboBox2.Font = New-Object System.Drawing.Font('Microsoft Sans Serif', 10)
     $ComboBox2.BackColor = 'black'
     $ComboBox2.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
-    $Global:time2List | ForEach-Object { [void] $ComboBox2.Items.Add($_) }
-    $ComboBox2.Text = $Global:time2
+    $time2List | ForEach-Object { [void] $ComboBox2.Items.Add($_) }
+    $ComboBox2.Text = $script:time2
     $ComboBox2.add_SelectedIndexChanged( {
-            $Global:time2 = $ComboBox2.Text
+            $script:time2 = $ComboBox2.Text
             $settings[1] = 'delay2=' + $ComboBox2.Text
             updateSettings
             updateStatus
@@ -335,7 +388,16 @@ function settings {
             updateSettings
         })    
 
-    $settingsForm.controls.AddRange(@($checkCaps, $checkNum, $ComboBox1, $ComboBox2, $Label1, $Label2, $checkMM, $checkES, $CheckBox5))
+    $StartButton = New-Object System.Windows.Forms.Button
+    $StartButton.Location = New-Object System.Drawing.Point(120, 160)
+    $StartButton.Size = New-Object System.Drawing.Size(120, 25)
+    $StartButton.Text = "Create Shortcut"
+    $StartButton.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#333333")
+    $StartButton.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+    $StartButton.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 10, [System.Drawing.FontStyle]::Regular)
+    $StartButton.Add_Click( { createShortcut })
+
+    $settingsForm.controls.AddRange(@($checkCaps, $checkNum, $ComboBox1, $ComboBox2, $Label1, $Label2, $checkMM, $checkES, $CheckBox5, $StartButton))
     function checkSettings {
         if ($checkCaps.Checked -or $checkNum.Checked -or $checkMM.Checked -or $checkES.Checked) {
 
@@ -348,25 +410,16 @@ function settings {
             $MessageIcon = [System.Windows.MessageBoxImage]::Warning
             [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
             
-            settings  
+            showSettings  
         }
     }
-       
-    $val = $settingsForm.ShowDialog()
+
+    $null = $settingsForm.ShowDialog()
 
     checkSettings
 }
 
-$menuAbout = New-Object System.Windows.Forms.ToolStripMenuItem
-$menuAbout.Text = "&About"
-$menuAbout.ForeColor = 'white'
-$menuAbout.BackColor = 'black'
-$menuAbout.Add_MouseHover( { $menuAbout.ForeColor = 'black' })
-$menuAbout.Add_MouseLeave( { $menuAbout.ForeColor = 'white' })
-$menuAbout.Add_Click( { about })
-[void]$menuMain.Items.Add($menuAbout)
-
-function about {
+function showAbout {
     $aboutForm = New-Object System.Windows.Forms.Form
     $aboutForm.Text = 'No Auto Lock - About'
     $aboutForm.opacity = 0.85
@@ -427,35 +480,8 @@ function about {
 
     $aboutForm.controls.AddRange(@($aboutLabel, $aboutLabel2, $aboutLabel3))
 
-    $val = $aboutForm.ShowDialog()
+    $null = $aboutForm.ShowDialog()
 }
-
-$menuHistory = New-Object System.Windows.Forms.ToolStripMenuItem
-$menuHistory.Text = "&History"
-$menuHistory.ForeColor = 'white'
-$menuHistory.BackColor = 'black'
-$menuHistory.Add_MouseHover( { $menuHistory.ForeColor = 'black' })
-$menuHistory.Add_MouseLeave( { $menuHistory.ForeColor = 'white' })
-$menuHistory.Add_Click( { showHistory })
-$historyCheck = 0
-$menuHistory.Add_MouseUP( {
-        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right ) {
-            if ($historyCheck -gt 4) {
-                $script:historyCheck = 0
-                $ButtonType = [System.Windows.MessageBoxButton]::OKCancel
-                $MessageboxTitle = 'Delete History'
-                $Messageboxbody = 'Do you want to clear the History of tool usage ?'
-                $MessageIcon = [System.Windows.MessageBoxImage]::Warning
-                $val = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
-
-                if ($val -eq 'OK' ) {
-                    clearHistory
-                }
-
-            }
-            $script:historyCheck++
-        } })
-[void]$menuMain.Items.Add($menuHistory)
 
 function showHistory {
     
@@ -538,171 +564,66 @@ function showHistory {
         $mainPanel.Controls.Add($dataGridView)
         $historyForm.Controls.add($mainPanel)
 
-        if($dataGridView.PreferredSize.Height -gt 550){
-            $historyForm.MinimumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width+5),  ($dataGridView.PreferredSize.Height+10))
-            $historyForm.MaximumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width+5), 550)
-            $historyForm.Size = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width+10), ($dataGridView.PreferredSize.Height+10))
+        if ($dataGridView.PreferredSize.Height -gt 550) {
+            $historyForm.MinimumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width + 5), ($dataGridView.PreferredSize.Height + 10))
+            $historyForm.MaximumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width + 5), 550)
+            $historyForm.Size = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width + 10), ($dataGridView.PreferredSize.Height + 10))
         }
-        else{
-            $historyForm.MinimumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width-10),  ($dataGridView.PreferredSize.Height+10))
-            $historyForm.MaximumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width-10), ($dataGridView.PreferredSize.Height+10))
-            $historyForm.Size = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width), ($dataGridView.PreferredSize.Height+10))
+        else {
+            $historyForm.MinimumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width - 10), ($dataGridView.PreferredSize.Height + 10))
+            $historyForm.MaximumSize = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width - 10), ($dataGridView.PreferredSize.Height + 10))
+            $historyForm.Size = New-Object System.Drawing.Size(($dataGridView.PreferredSize.Width), ($dataGridView.PreferredSize.Height + 10))
         }
 
-        $val = $historyForm.ShowDialog()
+        $null = $historyForm.ShowDialog()
     }
 }
 
-$label = New-Object System.Windows.Forms.Label
-$label.Location = New-Object System.Drawing.Point(10, (20))
-$label.Size = New-Object System.Drawing.Size(265, 35)
-$label.TextAlign = 'MiddleCenter'
-$label.ForeColor = 'white'
-# $label.BackColor = 'Moccasin'
-$label.Text = "Prevents the Computer from Auto Lock"
-$form.Controls.Add($label)
-$tooltip = New-Object System.Windows.Forms.ToolTip
-$tooltip.SetToolTip($label, "Tool simulates keystrokes on specific time period to prevent the machine from being idle")
+function showActions {
+    $aboutForm = New-Object System.Windows.Forms.Form
+    $aboutForm.Text = 'No Auto Lock - actions '
+    $aboutForm.opacity = 0.85
+    $aboutForm.BackColor = 'black'
+    $aboutForm.Size = New-Object System.Drawing.Size(610, 400)
+    $aboutForm.StartPosition = 'CenterScreen'
+    $aboutForm.Topmost = $true
+    $aboutForm.MinimumSize = New-Object System.Drawing.Size(610, 400)
+    $aboutForm.MaximumSize = New-Object System.Drawing.Size(610, 400)
+    $aboutForm.MaximizeBox = $false
+    $aboutForm.MinimizeBox = $false 
+    $aboutForm.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+    $aboutForm.Icon = [System.IconExtractor]::Extract("shell32.dll", 80, $true)
 
-$labelL1 = New-Object System.Windows.Forms.Label
-$labelL1.Location = New-Object System.Drawing.Point(10, (50))
-$labelL1.Size = New-Object System.Drawing.Size(265, 20)
-$labelL1.TextAlign = 'MiddleCenter'
-$labelL1.ForeColor = 'white'
-# $labelT.BackColor = 'Magenta'
-$labelL1.Text = '___________________________________________'
-$form.Controls.Add($labelL1)
+    $checkDo = New-Object system.Windows.Forms.CheckBox
+    $checkDo.text = "Do"
+    $checkDo.AutoSize = $false
+    $checkDo.width = 95
+    $checkDo.height = 20
+    $checkDo.location = New-Object System.Drawing.Point(220, 30)
+    $checkDo.Font = New-Object System.Drawing.Font('Microsoft Sans Serif', 10)
+    $checkDo.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+    $checkDo.Add_CheckStateChanged( {
 
-$labelL = New-Object System.Windows.Forms.Label
-$labelL.Location = New-Object System.Drawing.Point(10, (70))
-$labelL.Size = New-Object System.Drawing.Size(265, 20)
-$labelL.TextAlign = 'MiddleCenter'
-$labelL.ForeColor = 'white'
-# $labelT.BackColor = 'Magenta'
-$labelL.Text = 'Press START'
-$form.Controls.Add($labelL)
-
-$labelT = New-Object System.Windows.Forms.Label
-$labelT.Location = New-Object System.Drawing.Point(10, (95))
-$labelT.Size = New-Object System.Drawing.Size(265, 20)
-$labelT.TextAlign = 'MiddleCenter'
-$labelT.ForeColor = 'white'
-# $labelT.BackColor = 'Magenta'
-$labelT.Text = ''
-$form.Controls.Add($labelT)
-
-$Button = New-Object System.Windows.Forms.Button
-$Button.Location = New-Object System.Drawing.Point(95, 130)
-$Button.Size = New-Object System.Drawing.Size(95, 30)
-$Button.Text = "START"
-$Button.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#4DEE56")
-$Button.Font = New-Object System.Drawing.Font("Lucida Console", 12, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($Button)
-
-$Button.Add_Click( {    
-        if ($Button.Text -eq 'START') {
-            startNAL
-        }
-        else {
-            stopNAL
-        }
-    }) 
-
-$clickCount = 0
-$Button.Add_MouseUP( {
-        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right ) {
-            if ($this.text -eq 'START') {
-                if ($clickCount -gt 3) {
-                    $script:clickCount = 0
-                    $ButtonType = [System.Windows.MessageBoxButton]::OKCancel
-                    $MessageboxTitle = 'Background Mode'
-                    $Messageboxbody = 'Run the tool in Background Mode ? (uses settings which won''t affect working in the machine) ? '
-                    $MessageIcon = [System.Windows.MessageBoxImage]::Question
-                    $val = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
-                }
-                else {
-                    $script:clickCount ++
-                }
-            }
-        }
-    })
-
-$ProgressBar1 = New-Object system.Windows.Forms.ProgressBar
-$ProgressBar1.width = 250
-$ProgressBar1.height = 10
-$ProgressBar1.location = New-Object System.Drawing.Point(20, 170)
-$ProgressBar1.Style = "Marquee"
-$ProgressBar1.BackColor = 'black'
-$ProgressBar1.MarqueeAnimationSpeed = 25
-$ProgressBar1.Visible = $false
-$Form.controls.AddRange(@($ProgressBar1))
-
-$xVal = 145
-
-$keyImage1 = New-Object System.Windows.Forms.PictureBox
-$keyImage1.Image = [System.IconExtractor]::Extract("accessibilitycpl.dll", 5, $true).ToBitmap()
-$keyImage1.Location = New-Object System.Drawing.Point(($xval - 104), 190)
-$keyImage1.Size = "32, 32"
-$keyImage1.SizeMode = "StretchImage"
-$keyImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($keyImage1)
-
-$keyImage2 = New-Object System.Windows.Forms.PictureBox
-$keyImage2.Image = [System.IconExtractor]::Extract("imageres.dll", 101, $true).ToBitmap()
-# $keyImage2.Image    = [System.IconExtractor]::Extract("imageres.dll", 93, $true).ToBitmap()
-$keyImage2.Location = New-Object System.Drawing.Point(($xval - 72), 190)
-$keyImage2.Size = "16, 16"
-$keyImage2.SizeMode = "StretchImage"
-$keyImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($keyImage2)
-
-$mouseImage1 = New-Object System.Windows.Forms.PictureBox
-$mouseImage1.Image = [System.IconExtractor]::Extract("accessibilitycpl.dll", 4, $true).ToBitmap()
-$mouseImage1.Location = New-Object System.Drawing.Point(($xval - 16), 190)
-$mouseImage1.Size = "32, 32"
-$mouseImage1.SizeMode = "StretchImage"
-$mouseImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($mouseImage1)
-
-$mouseImage2 = New-Object System.Windows.Forms.PictureBox
-$mouseImage2.Location = New-Object System.Drawing.Point(($xval + 16), 190)
-$mouseImage2.Size = "16, 16"
-$mouseImage2.SizeMode = "StretchImage"
-$mouseImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($mouseImage2)
-
-$soundImage1 = New-Object System.Windows.Forms.PictureBox
-$soundImage1.Image = [System.IconExtractor]::Extract("shell32.dll", 168, $true).ToBitmap()
-$soundImage1.Location = New-Object System.Drawing.Point(($xval + 62), 190)
-$soundImage1.Size = "32, 32"
-$soundImage1.SizeMode = "StretchImage"
-$soundImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($soundImage1)
-
-$soundImage2 = New-Object System.Windows.Forms.PictureBox
-$soundImage2.Location = New-Object System.Drawing.Point(($xval + 94), 190)
-$soundImage2.Size = "16, 16"
-$soundImage2.SizeMode = "StretchImage"
-$soundImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
-$Form.Controls.Add($soundImage2)
+        })
+    # Shutdown tool at 
+    # when - after time or at time  
+    # action- log off, shutdown , lock , 
 
 
-$statusStrip = New-Object System.Windows.Forms.StatusStrip
-$statusStrip.BackColor = 'black'
+    # $cmd = 'pwd'
+    # & $cmd
 
-$statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
-$statusLabel.forecolor = 'white'
-#$statusLabel.AutoSize = $true
-$statusLabel.TextAlign = 'MiddleCenter'
-$statusLabel.Text = ''
-$statusLabel.Font = New-Object System.Drawing.Font("Arial", 7, [System.Drawing.FontStyle]::Regular)
-[void]$statusStrip.Items.Add($statusLabel)
-$form.Controls.Add($statusStrip)
+    # lock machine 
+    # rundll32.exe user32.dll,LockWorkStation  
+
+    $aboutForm.controls.AddRange(@( $checkDo))
+    $null = $aboutForm.ShowDialog()
+}
 
 function updateStatus {
     $statusMsg = "Keys: " 
-    foreach ($key in $Global:keyToUse) {
-    
+    foreach ($key in $keyToUse) {
+
         $key = $key -replace '{' -replace '}'
         if ($statusMsg -eq "Keys: " ) {
             $statusMsg += $key 
@@ -719,9 +640,9 @@ function updateStatus {
         $statusMsg += "  && "
     }
 
-    $statusLabel.Text = $statusMsg + "Delays : " + $Global:time1 + ' , ' + $Global:time2 
+    $statusLabel.Text = $statusMsg + "Delays : " + $time1 + ' , ' + $time2 
 
-    if ($Global:keyToUse.Length -gt 0) {
+    if ($keyToUse.Length -gt 0) {
         $keyImage2.Image = [System.IconExtractor]::Extract("imageres.dll", 101, $true).ToBitmap()
         $tooltip = New-Object System.Windows.Forms.ToolTip
         $tooltip.SetToolTip($keyImage1, "key Press Enabled")
@@ -755,10 +676,8 @@ function updateStatus {
     }
 }
 
-updateStatus
-
 function notifyMinRun {
-    $global:balloon = New-Object System.Windows.Forms.NotifyIcon
+    $balloon = New-Object System.Windows.Forms.NotifyIcon
     $balloon.Icon = [System.IconExtractor]::Extract("shell32.dll", 265, $true)
     $balloon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
     $balloon.BalloonTipText = '"No Auto Lock" tool is still running minimized'
@@ -770,11 +689,11 @@ function notifyMinRun {
 
 $timerJob = {
 
-    $Global:time = $Global:time + 1
-    $hr = [System.Math]::Floor($Global:time / (60 * 60))
-    $min = [System.Math]::Floor($Global:time / 60)
+    $script:time = $script:time + 1
+    $hr = [System.Math]::Floor($script:time / (60 * 60))
+    $min = [System.Math]::Floor($script:time / 60)
     $min = $min - ($hr * 60)
-    $sec = ($Global:time - (($hr * 60 * 60) + ($min * 60)))
+    $sec = ($script:time - (($hr * 60 * 60) + ($min * 60)))
 
     if ($hr -gt 0) {
         $labelT.Text = 'Hour: ' + $hr + '  Minutes: ' + $min + '  Seconds: ' + $sec   
@@ -788,10 +707,11 @@ $timerJob = {
 
     if ($sec -eq 59) {
         if ($form.WindowState -eq 'Minimized') {
+            log "send notification"
             notifyMinRun
         }
     }
-    
+
 
     # $val = get-Job | Receive-job
     # if ($val -gt 0) {
@@ -801,10 +721,6 @@ $timerJob = {
     #     $mouseImage2.Image = [System.IconExtractor]::Extract("imageres.dll", 101, $true).ToBitmap()
     # }
 }
-
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 1000
-$timer.add_Tick($timerJob)
 
 $job = {
 
@@ -883,21 +799,251 @@ $job = {
         if ($args[4]) {
             makeSound
         }  
-       
+   
         Start-Sleep -Milliseconds $args[1] 
     }
 }
 
+function loadUI () {
+ 
+    # Main form 
+    $form.Text = 'No Auto Lock '
+    $form.opacity = 0.8
+    $form.BackColor = 'black'
+    $form.Size = New-Object System.Drawing.Size(300, 290)
+    $form.StartPosition = 'CenterScreen'
+    $form.Topmost = $true
+    $form.MinimumSize = New-Object System.Drawing.Size(300, 290)
+    $form.MaximumSize = New-Object System.Drawing.Size(300, 290)
+    $Form.MaximizeBox = $false
+    # $Form.MinimizeBox = $false 
+    $form.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+    $Form.Icon = [System.IconExtractor]::Extract("shell32.dll", 265, $true)
+   
+    $menuMain = New-Object System.Windows.Forms.MenuStrip
+    $menuMain.BackColor = 'black'
+    $Form.Controls.Add($menuMain)
 
+    $menuSettings.Text = "&Settings"
+    $menuSettings.ForeColor = 'white'
+    $menuSettings.BackColor = 'black'
+    $menuSettings.Add_MouseHover( { $menuSettings.ForeColor = 'black' })
+    $menuSettings.Add_MouseLeave( { $menuSettings.ForeColor = 'white' })
+    $menuSettings.Add_Click( { log "show settings"
+            showSettings })
+    [void]$menuMain.Items.Add($menuSettings)
+
+    $menuAbout.Text = "&About"
+    $menuAbout.ForeColor = 'white'
+    $menuAbout.BackColor = 'black'
+    $menuAbout.Add_MouseHover( { $menuAbout.ForeColor = 'black' })
+    $menuAbout.Add_MouseLeave( { $menuAbout.ForeColor = 'white' })
+    $menuAbout.Add_Click( { log "show about"
+            showAbout })
+    [void]$menuMain.Items.Add($menuAbout)
+
+    $menuHistory.Text = "&History"
+    $menuHistory.ForeColor = 'white'
+    $menuHistory.BackColor = 'black'
+    $menuHistory.Add_MouseHover( { $menuHistory.ForeColor = 'black' })
+    $menuHistory.Add_MouseLeave( { $menuHistory.ForeColor = 'white' })
+    $menuHistory.Add_Click( { 
+            log "show history"
+            showHistory })
+    $historyCheck = 0
+    $menuHistory.Add_MouseUP( {
+            if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right ) {
+                if ($historyCheck -gt 4) {
+                    $script:historyCheck = 0
+                    $ButtonType = [System.Windows.MessageBoxButton]::OKCancel
+                    $MessageboxTitle = 'Delete History'
+                    $Messageboxbody = 'Do you want to clear the History of tool usage ?'
+                    $MessageIcon = [System.Windows.MessageBoxImage]::Warning
+                    $val = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
+
+                    if ($val -eq 'OK' ) {
+                        clearHistory
+                    }
+
+                }
+                $script:historyCheck++
+            } })
+    [void]$menuMain.Items.Add($menuHistory)
+
+    $menuAction.Text = "&Actions"
+    $menuAction.ForeColor = 'white'
+    $menuAction.BackColor = 'black'
+    $menuAction.Add_MouseHover( { $menuAction.ForeColor = 'black' })
+    $menuAction.Add_MouseLeave( { $menuAction.ForeColor = 'white' })
+    $menuAction.Add_Click( {
+            log "show actions"
+            showActions })
+    [void]$menuMain.Items.Add($menuAction)
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Location = New-Object System.Drawing.Point(10, (20))
+    $label.Size = New-Object System.Drawing.Size(265, 35)
+    $label.TextAlign = 'MiddleCenter'
+    $label.ForeColor = 'white'
+    # $label.BackColor = 'Moccasin'
+    $label.Text = "Prevents the Computer from Auto Lock"
+    $form.Controls.Add($label)
+    $tooltip = New-Object System.Windows.Forms.ToolTip
+    $tooltip.SetToolTip($label, "Tool simulates keystrokes on specific time period to prevent the machine from being idle")
+
+    $labelL1 = New-Object System.Windows.Forms.Label
+    $labelL1.Location = New-Object System.Drawing.Point(10, (50))
+    $labelL1.Size = New-Object System.Drawing.Size(265, 20)
+    $labelL1.TextAlign = 'MiddleCenter'
+    $labelL1.ForeColor = 'white'
+    # $labelT.BackColor = 'Magenta'
+    $labelL1.Text = '___________________________________________'
+    $form.Controls.Add($labelL1)
+
+    $labelL.Location = New-Object System.Drawing.Point(10, (70))
+    $labelL.Size = New-Object System.Drawing.Size(265, 20)
+    $labelL.TextAlign = 'MiddleCenter'
+    $labelL.ForeColor = 'white'
+    # $labelT.BackColor = 'Magenta'
+    $labelL.Text = 'Press START'
+    $form.Controls.Add($labelL)
+
+    $labelT.Location = New-Object System.Drawing.Point(10, (95))
+    $labelT.Size = New-Object System.Drawing.Size(265, 20)
+    $labelT.TextAlign = 'MiddleCenter'
+    $labelT.ForeColor = 'white'
+    # $labelT.BackColor = 'Magenta'
+    $labelT.Text = ''
+    $form.Controls.Add($labelT)
+
+    
+    $StartButton.Location = New-Object System.Drawing.Point(95, 130)
+    $StartButton.Size = New-Object System.Drawing.Size(95, 30)
+    $StartButton.Text = "START"
+    $StartButton.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#4DEE56")
+    $StartButton.Font = New-Object System.Drawing.Font("Lucida Console", 12, [System.Drawing.FontStyle]::Bold)
+    $form.Controls.Add($StartButton)
+
+    $StartButton.Add_Click( {    
+            if ($StartButton.Text -eq 'START') {
+                log "start tool"
+                startNAL
+            }
+            else {
+                log "stop tool"
+                stopNAL
+            }
+        }) 
+
+    $clickCount = 0
+    $StartButton.Add_MouseUP( {
+            if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right ) {
+                if ($this.text -eq 'START') {
+                    if ($clickCount -gt 3) {
+                        $script:clickCount = 0
+                        $ButtonType = [System.Windows.MessageBoxButton]::OKCancel
+                        $MessageboxTitle = 'Background Mode'
+                        $Messageboxbody = 'Run the tool in Background Mode ? (uses settings which won''t affect working in the machine) ? '
+                        $MessageIcon = [System.Windows.MessageBoxImage]::Question
+                        $null = [System.Windows.MessageBox]::Show($Messageboxbody, $MessageboxTitle, $ButtonType, $messageicon)
+                    }
+                    else {
+                        $script:clickCount ++
+                    }
+                }
+            }
+        })
+
+    $ProgressBar1.width = 250
+    $ProgressBar1.height = 10
+    $ProgressBar1.location = New-Object System.Drawing.Point(20, 170)
+    $ProgressBar1.Style = "Marquee"
+    $ProgressBar1.BackColor = 'black'
+    $ProgressBar1.MarqueeAnimationSpeed = 25
+    $ProgressBar1.Visible = $false
+    $Form.controls.AddRange(@($ProgressBar1))
+
+    $xVal = 145
+
+    $keyImage1.Image = [System.IconExtractor]::Extract("accessibilitycpl.dll", 5, $true).ToBitmap()
+    $keyImage1.Location = New-Object System.Drawing.Point(($xval - 104), 190)
+    $keyImage1.Size = "32, 32"
+    $keyImage1.SizeMode = "StretchImage"
+    $keyImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($keyImage1)
+
+    $keyImage2.Image = [System.IconExtractor]::Extract("imageres.dll", 101, $true).ToBitmap()
+    # $keyImage2.Image    = [System.IconExtractor]::Extract("imageres.dll", 93, $true).ToBitmap()
+    $keyImage2.Location = New-Object System.Drawing.Point(($xval - 72), 190)
+    $keyImage2.Size = "16, 16"
+    $keyImage2.SizeMode = "StretchImage"
+    $keyImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($keyImage2)
+
+    $mouseImage1.Image = [System.IconExtractor]::Extract("accessibilitycpl.dll", 4, $true).ToBitmap()
+    $mouseImage1.Location = New-Object System.Drawing.Point(($xval - 16), 190)
+    $mouseImage1.Size = "32, 32"
+    $mouseImage1.SizeMode = "StretchImage"
+    $mouseImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($mouseImage1)
+
+    $mouseImage2.Location = New-Object System.Drawing.Point(($xval + 16), 190)
+    $mouseImage2.Size = "16, 16"
+    $mouseImage2.SizeMode = "StretchImage"
+    $mouseImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($mouseImage2)
+
+    $soundImage1.Image = [System.IconExtractor]::Extract("shell32.dll", 168, $true).ToBitmap()
+    $soundImage1.Location = New-Object System.Drawing.Point(($xval + 62), 190)
+    $soundImage1.Size = "32, 32"
+    $soundImage1.SizeMode = "StretchImage"
+    $soundImage1.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($soundImage1)
+
+    $soundImage2.Location = New-Object System.Drawing.Point(($xval + 94), 190)
+    $soundImage2.Size = "16, 16"
+    $soundImage2.SizeMode = "StretchImage"
+    $soundImage2.BackColor = [System.Drawing.Color]::FromName("Transparent")
+    $Form.Controls.Add($soundImage2)
+
+    $statusStrip = New-Object System.Windows.Forms.StatusStrip
+    $statusStrip.BackColor = 'black'
+
+    $statusLabel.forecolor = 'white'
+    #$statusLabel.AutoSize = $true
+    $statusLabel.TextAlign = 'MiddleCenter'
+    $statusLabel.Text = ''
+    $statusLabel.Font = New-Object System.Drawing.Font("Arial", 7, [System.Drawing.FontStyle]::Regular)
+    [void]$statusStrip.Items.Add($statusLabel)
+    $form.Controls.Add($statusStrip)
+
+    updateStatus
+
+    $timer.Interval = 1000
+    $timer.add_Tick($timerJob)
+
+    $form.Add_Closing( {
+            log "stop tool"
+            stopNAL
+            $timer.Dispose()
+            get-Job | Remove-Job
+        })
+
+    if ($autoStart) {
+        log "start tool"
+        startNAL
+    }
+}
 function startNAL {
-    if ($mouseMove -or $soundOn -or ($Global:keyToUse.length -gt 0)) {
-        $Button.Text = 'STOP'
-        $Button.BackColor = 'Red'
+    if ($mouseMove -or $soundOn -or ($keyToUse.length -gt 0)) {
+        $StartButton.Text = 'STOP'
+        $StartButton.BackColor = 'Red'
         $timer.Start()
-        $Global:jobId = Start-Job -Name "RandomKeysend" $job -ArgumentList $Global:keyToUse, $Global:time1, $Global:time2, $mouseMove, $soundOn
+        $script:jobId = Start-Job -Name "RandomKeysend" $job -ArgumentList $keyToUse, $script:time1, $script:time2, $mouseMove, $soundOn
         $labelL.Text = "Tool Running"
         $ProgressBar1.Visible = $true
-        $menuSettings.enabled = $false
+        $menuSettings.Enabled = $false
+        $menuAction.Enabled = $false
         # $Form.MinimizeBox = $false
         createHistory
     }
@@ -914,25 +1060,26 @@ function stopNAL {
 
     updateHistory
 
-    $Button.Text = 'START'
-    $Button.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#4DEE56")
+    $StartButton.Text = 'START'
+    $StartButton.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#4DEE56")
     $timer.Stop()
-    $Global:time = 0
-    if ($Global:jobId) {
-        Stop-job -Job $Global:jobId
+    $script:time = 0
+    if ($script:jobId) {
+        Stop-job -Job $script:jobId
     }
     $labelL.Text = "Stopped at"
     $ProgressBar1.Visible = $false
     $menuSettings.enabled = $true
+    $menuAction.Enabled = $true
     # $Form.MinimizeBox = $true
 
     if ($capsState -bxor ([System.Windows.Forms.Control]::IsKeyLocked( 'CapsLock' ))) {
-        #Write-Host "state different"
+        #log "state different"
         $wshell = New-Object -ComObject wscript.shell;
         $wshell.SendKeys('{CAPSLOCK}')
     }
     if ($numState -bxor ([System.Windows.Forms.Control]::IsKeyLocked( 'NumLock' ))) {
-        #Write-Host "state different"
+        #log "state different"
         $wshell = New-Object -ComObject wscript.shell;
         $wshell.SendKeys('{NUMLOCK}')
     }
@@ -940,16 +1087,13 @@ function stopNAL {
     get-job | stop-job
 }
 
-$form.Add_Closing( {
-        stopNAL
-        $timer.Dispose()
-        get-Job | Remove-Job
-    })
+log "init app"
+initApp
 
-if ($autoStart) {
-    startNAL
-}
+log "load main UI"
+loadUI
 
-$exitval = $form.ShowDialog()
+# actions
+$null = $form.ShowDialog()
 
 #Receive-Job -Name RandomKeysend
